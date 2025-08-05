@@ -2,7 +2,6 @@ package adb
 
 import (
 	"context"
-	"io"
 	"sync"
 	"time"
 )
@@ -12,7 +11,7 @@ type Client interface {
 	Devices(ctx context.Context) ([]Device, error)
 	Packages(ctx context.Context, serial string, opts ListPackageOptions) ([]Package, error)
 	Uninstall(ctx context.Context, serial, pkg string, keepData bool, user int) error
-	Install(ctx context.Context, serial string, apk io.Reader, name string) error
+	Install(ctx context.Context, serial string, apkPath string) error // Updated signature
 }
 
 type Device struct {
