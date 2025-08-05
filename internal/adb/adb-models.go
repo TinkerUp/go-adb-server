@@ -16,11 +16,11 @@ type Client interface {
 }
 
 type Device struct {
-	Serial       string
-	State        string // device, unauthorized, offline
-	Model        string // optional, may be empty in MVP
-	Manufacturer string // optional
-	IsAuthorized bool
+	Serial       string `json:"device_id"`
+	State        string `json:"status"`
+	Model        string `json:"model"`
+	Manufacturer string `json:"manufacturer"`
+	IsAuthorized bool   `json:"authorized"`
 }
 
 type Package struct {
