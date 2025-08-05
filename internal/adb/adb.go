@@ -6,11 +6,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -107,88 +104,40 @@ func (adbServerClient *client) Devices(ctx context.Context) ([]Device, error) {
 	return devices, nil
 }
 
-func (adbServerClient *client) Install(ctx context.Context, serial string, apk io.Reader, name string) error {
+func (adbServerClient *client) Install(ctx context.Context, serial string, apkPath string) error {
 	if serial == "" {
 		return errors.New("serial is required")
 	}
-
-	if name == "" {
-		name = fmt.Sprintf("tinkerup-%d.apk", time.Now().UnixNano())
+	if apkPath == "" {
+		return errors.New("apk path is required")
 	}
 
-	// I dont want to be accessing the user's computer willy nilly due to safety concerns
-	// This is why we first copy the file to a temporary path and then access it
-	temporaryDirPath := filepath.Join(adbServerClient.tempDir, name)
-
-	temporaryDir, err := os.Create(temporaryDirPath)
-
-	if err != nil {
-		return fmt.Errorf("error creating temporary directory for apk storage: %w", err)
-	}
-
-	defer os.Remove(temporaryDirPath)
-
-	_, copyErr := io.Copy(temporaryDir, apk)
-
-	closeErr := temporaryDir.Close()
-
-	if copyErr != nil {
-		return fmt.Errorf("error while tryig to copy apk to temporary dir: %w", copyErr)
-	}
-
-	if closeErr != nil {
-		return fmt.Errorf("close temp apk: %w", closeErr)
+	// Verify the file exists
+	if _, err := os.Stat(apkPath); os.IsNotExist(err) {
+		return fmt.Errorf("apk file does not exist: %s", apkPath)
 	}
 
 	unlock := adbServerClient.lock(serial)
 	defer unlock()
 
-	// Pushing the APK file to the device
-	remoteAPK := "/data/local/tmp/" + name
+	installCtx, cancel := context.WithTimeout(ctx, adbServerClient.installTimeout)
+	defer cancel()
 
-	{ // Creating local scope to introduce local variables
-		apkPushCtx, cancel := context.WithTimeout(ctx, adbServerClient.installTimeout)
-
-		defer cancel()
-
-		if _, errOut, err := adbServerClient.run(apkPushCtx, serial, "push", temporaryDirPath, remoteAPK); err != nil {
-			return fmt.Errorf("adb push failed: %v: %s", err, errOut)
-		}
+	out, errOut, err := adbServerClient.run(installCtx, serial, "install", "-r", apkPath)
+	if err != nil {
+		return fmt.Errorf("adb install failed: %v: %s", err, errOut)
 	}
 
-	// Installing the pushed apk
-
-	// Deferring cleanup of file from user device
-	defer adbServerClient.run(context.Background(), serial, "shell", "rm", "-f", remoteAPK)
-
-	{
-		apkInstallCtx, cancel := context.WithTimeout(ctx, adbServerClient.installTimeout)
-
-		defer cancel()
-
-		out, errOut, err := adbServerClient.run(apkInstallCtx, serial, "shell", "pm", "install", "-r", remoteAPK)
-
-		if err != nil {
-			return fmt.Errorf("pm install failed: %v: %s", err, errOut)
-		}
-
-		if !strings.Contains(out, "Success") {
-			return fmt.Errorf("install error: %s %s", strings.TrimSpace(out), strings.TrimSpace(errOut))
-		}
+	if !strings.Contains(out, "Success") {
+		return fmt.Errorf("install error: %s %s", strings.TrimSpace(out), strings.TrimSpace(errOut))
 	}
 
 	return nil
 }
 
 func (adbServerClient *client) Uninstall(ctx context.Context, serial, pkg string, keepData bool, user int) error {
-	var pkgNameRe = regexp.MustCompile(`^[a-zA-Z0-9._]+$`)
-
 	if serial == "" {
 		return errors.New("serial is required")
-	}
-
-	if !pkgNameRe.MatchString(pkg) {
-		return fmt.Errorf("invalid package name")
 	}
 
 	unlock := adbServerClient.lock(serial)
