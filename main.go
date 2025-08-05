@@ -18,6 +18,9 @@ func main() {
 	// Set up protected routes
 	server.ProtectedMux.HandleFunc("/v1/health", handlers.HandleServerHealth)
 	server.ProtectedMux.HandleFunc("/v1/adb/list-devices", handlers.HandleListDevices)
+	server.ProtectedMux.HandleFunc("/v1/adb/list-packages", handlers.HandleListPackages)
+	server.ProtectedMux.HandleFunc("/v1/adb/install-package", handlers.HandleInstallApp)
+	server.ProtectedMux.HandleFunc("/v1/adb/uninstall-package", handlers.HandleUninstallApp)
 
 	protectedRouteHandler := middleware.ProtectedRoute(server.ProtectedMux)
 
@@ -25,7 +28,6 @@ func main() {
 	// Must change in the future though
 	adbRouteHandler := middleware.WithADBClient(server.ADBClient)(protectedRouteHandler)
 
-	// Set up main routes
 	server.MainMux.HandleFunc("/v1/pair", handlers.PairWithServer)
 	server.MainMux.Handle("/v1/", adbRouteHandler)
 
