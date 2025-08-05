@@ -3,6 +3,7 @@ package main
 import (
 	"adb-server/handlers"
 	"adb-server/middleware"
+	"adb-server/models"
 	"adb-server/utilities"
 	"fmt"
 	"log"
@@ -10,24 +11,29 @@ import (
 )
 
 func main() {
-	port := utilities.PickRandomPort(35000, 49151) // Choosing Random port for basic security
+	port := utilities.PickRandomPort(35000, 49151)
 
-	mainMux := http.NewServeMux()      // Handles all routes
-	protectedMux := http.NewServeMux() // For all routes which require authentication. For now, all routes require authentication
+	server := models.NewServer(port)
 
-	protectedMux.HandleFunc("/v1/health", handlers.HandleServerHealth)
+	// Set up protected routes
+	server.ProtectedMux.HandleFunc("/v1/health", handlers.HandleServerHealth)
+	server.ProtectedMux.HandleFunc("/v1/adb/list-devices", handlers.HandleListDevices)
 
-	protectedRouteHandler := middleware.ProtectedRoute(protectedMux) // All routes
+	protectedRouteHandler := middleware.ProtectedRoute(server.ProtectedMux)
 
-	mainMux.HandleFunc("/v1/pair", handlers.PairWithServer)
-	mainMux.Handle("/v1/", protectedRouteHandler)
+	// Applying ADB client middleware it to all protected routes since ADB operations would be protected
+	// Must change in the future though
+	adbRouteHandler := middleware.WithADBClient(server.ADBClient)(protectedRouteHandler)
+
+	// Set up main routes
+	server.MainMux.HandleFunc("/v1/pair", handlers.PairWithServer)
+	server.MainMux.Handle("/v1/", adbRouteHandler)
 
 	serverAddress := fmt.Sprintf("127.0.0.1:%d", port)
-
 	log.Printf("Server starting on http://%s", serverAddress)
 	log.Printf("Pairing code: %d", port)
 
-	if err := http.ListenAndServe(serverAddress, mainMux); err != nil { // Not gonna lie, this is a pretty sick feature of go.
+	if err := http.ListenAndServe(serverAddress, server.MainMux); err != nil {
 		log.Fatal(err)
 	}
 }
